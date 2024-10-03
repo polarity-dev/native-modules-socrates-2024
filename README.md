@@ -1,46 +1,45 @@
 # How cpp fixes react-native
 
-### Talk in breve
+## Introduction
 
+What is a native module?
 
-### Scaletta
-- lo storico dei native modules
-- si attacca con l esempio get-random-values
+Sometimes a React Native app needs to access a native platform API that is not available by default in JavaScript, for example the native APIs to access Apple or Google Pay. Maybe you want to reuse some existing Objective-C, Swift, Java or C++ libraries without having to reimplement it in JavaScript, or write some high performance, multi-threaded code for things like image processing.
 
+The NativeModule system exposes instances of Java/Objective-C/C++ (native) classes to JavaScript (JS) as JS objects, thereby allowing you to execute arbitrary native code from within JS.
 
-## Introduzione
+Native modules allowed JavaScript and platform-native code to communicate over the React Native "bridge", which handles cross-platform serialization via JSON.
 
-Cos’è un native module?
+In a nutshell,
 
-A volte un'applicazione React Native deve accedere a un API della piattaforma nativa che non è disponibile di default in JavaScript, ad esempio le API native per accedere a Apple o Google Pay. Forse si desidera riutilizzare alcune librerie Objective-C, Swift, Java o C++ esistenti senza doverle re-implementare in JavaScript, oppure scrivere codice multi-thread ad alte prestazioni per cose come l'elaborazione delle immagini.
+1. JavaScript serialized the state of the UI or whatever native function you wanted to call in JSON that is then passed to the "Bridge"
+   - You can imagine it as an object that handles this communication
+2. and then proceeds to call the native functions itself
 
-Il sistema NativeModule espone istanze di classi Java/Objective-C/C++ (native) a JavaScript (JS) come oggetti JS, permettendo così di eseguire codice nativo arbitrario da JS.
+This serialization until now has been a performance bottleneck to any React Native application and library because it's slow, especially when there are a lot of things happening in the app between UI updates, native modules calls or simply there are is a lot of data
 
-I moduli nativi fino ad ora hanno consentito a JavaScript e al codice nativo di comunicare attraverso il “Bridge” di React Native, che gestisce la serializzazione cross-platform tramite JSON.
+So the idea of the React Native Core Team was to replace this Bridge with JSI (which stands for JavaScript Interface), that instead of being an JS object like the "bridge", it's a collection of headers and functions that allow the native functions calling, so this is the reason why the new architecture is called "bridgeless mode"
 
-In poche parole JavaScript serializza lo stato della UI, o qualsiasi funzione che si volesse chiamare dall’ambiente nativo, in JSON che poi passato al Bridge (che si può immaginare come un oggetto che gestisce questa comunicazione), procede a chiamare le funzioni native.
+This change is not gonna be instant, as you know (hopefully), we cannot kill already existing app and libraries, and to start the process of migration from the bridge, it has not been totally removed in favour of JSI, but right now they're working together thanks to the "interop layer" which allows the old syntax and ways to develop native modules to work in "bridgless mode"
 
-Questa serializzazione tramite JSON fino ad ora è stata un bottleneck per le performance di qualsiasi app e libreria realizzata con React Native, poiché lenta.
-JSON.stringifizzare, soprattutto nel caso in cui ci fossero tante cose che accadono all’interno dell’app, tra UI updates, chiamate a native modules o dove ci sono molti dati.
+This layer, in the future, will be removed in favour of JSI.
 
-Quindi l’idea del team core di React Native è stato quello di sostituire questo “JSON Bridge” con JSI (JavaScript Interface) che al contrario del Bridge non è un oggetto, ma un insieme di headers e funzioni che permettono di chiamare codice nativo, da questo il nome della nuova architettura “bridgeless mode”
-
-Questo cambiamento non è stato immediato, in modo da mantenere funzionanti le app già sviluppate e per inizializzare il processo di migrazione dal Bridge, il Bridge non è stato completamente rimosso in favore di JSI, ma funzionavano in parallelo, questo grazie ad uno strato aggiuntivo, l’interop layer che permette alla sintassi con cui erano sviluppati i vecchi moduli di funzionare in “bridgeless mode”.
-Questo layer, in futuro, verrà poi rimosso totalmente in favore di JSI
-
-
+For example we created this little library to demonstrate and show you the capabilities of these new native modules
 
 ## get-random-values
-Per esempio abbiamo creato questa piccola libreria per dimostrare le capacità dei nuovi native modules. In questo caso abbiamo creato un modulo nativo che permette di generare numeri casuali in modo sicuro e riempire un array di bytes utilizzando una libreria molto popolare scritta in C chiamata `libsodium`.
+We created a little but yet useful React Native library that allows you to generate random numbers securely and fill a bytearray using a very popular library written in C called `libsodium`.
 
-La libreria espone un solo metodo `getRandomValues` che serve per integrare questa funzione nello scope globale dell'applicazione di react-native. Questo serve per poter essere compatibile con altre librerie pensate per la runtime browser o per node, per esempio `uuid` oppure `ethers.js`
+The library exposes a single method `getRandomValues`. The purpouse of this method is to polyfill `crypto.getRandomValues` in the global scope that is missing in the React Native runtime. This is useful to make React Native compatible with other libraries that are designed to run on browser or node runtime, for example `uuid` or `ethers.js`
 
-L'implementazione è stata fatta utilizzando un framework uscito da pochissimo chiamato `react-native-nitro-modules` che aggiunge delle astrazioni che permettono di scrivere più velocemente dei moduli nativi in Swift/Objective-C, Java/Kotlin o C++
+The implementation of the library is done using a very new framework called `react-native-nitro-modules` that adds some abstractions that allow you to write native modules in Swift/Objective-C, Java/Kotlin or C++ faster.
 
-In questo caso abbiamo scelto di scrivere il modulo di C++ per poter utilizzare una sola codebase e sulla repo di libsodium era molto facile ottenere i precompilati per Android e iOS.
+In this case we decided to write the Native Module using C++ only. The reason is that we wanted to use a single codebase and on the `libsodium`github  repo it was very easy to get the precompiled binaries for Android and iOS.
 
-### Struttura della libreria
-La libreria di base è stata creata usando `create-react-native-library` e poi sono stati aggiunti i file necessari per utilizzare i nitro modules
+The Native Module is built on the iOS side using CocoaPods and on the Android side using a combination of gradle and CMake.
+
+### Folder structure of the Native Module
+The scaffolding of the library was done using `create-react-native-library` and then we modified it with the files needed to implement the Native Module in C++.
+
 ```
 react-native-get-random-values
 ├── ios
@@ -60,7 +59,7 @@ react-native-get-random-values
 
 ```
 
-### Implementazione lato TypeScript
+### TypeScript implementation
 
 ```ts
 import { NitroModules, type HybridObject } from "react-native-nitro-modules"
@@ -77,25 +76,26 @@ export interface Sodium extends HybridObject {
   getRandomValues(buffer: ArrayBuffer): void;
 }
 
-// Crea un istancza del native module
+// Create the native module instance
+// A Hybrid Object is a native object that can be used from JS like any other object. They can have natively implemented methods, as well as properties (get + set).
 const sodium = NitroModules.createHybridObject<Sodium>("Sodium")
 
 const getRandomValues = <TypedArray extends CompatibleArray>(array: TypedArray): TypedArray => {
-  // Chiamata al metodo del native module definito nella interface
+  // Call the native method getRandomValues registered in the Sodium Hybrid Object
   sodium.getRandomValues(array.buffer)
-  // L'array originale viene modificato direttamente dal modulo nativo
+  // The original byte array is modified in place, so we return it
   return array
 }
 
 ```
-Questo era tutto quello che ci serviva lato JavaScript.
+That was all for Typescript.
 
-### Implementazione lato C++
-L'implementazione lato C++ contiene solamente due files
+### C++ implementation
+To implement the HybridObject in C++ we need the following files:c
 - `Sodium.hpp`
 - `Sodium.cpp`
 
-Il file `Sodium.hpp` contiene la definizione della classe `Sodium` che estende la classe `HybridObject` definita dal framework di NitroModules.
+`Sodium.hpp` contains the definition of our `Sodium` class which extends `HybridObject` class defined by the NitroModules framework.
 
 ```cpp
 
@@ -104,68 +104,62 @@ using namespace margelo::nitro;
 
 class Sodium: public HybridObject {
     public:
-      // Constructor
       explicit Sodium();
-
-      // Destructor
       virtual ~Sodium() {};
 
     public:
-      // Methods
-      void getRandomValues(const std::shared_ptr<ArrayBuffer>& buffer); // <- Metodo che verrà chiamato dal modulo JavaScript
+      // This is out exported method that will be accessible from JavaScript
+      void getRandomValues(const std::shared_ptr<ArrayBuffer>& buffer); 
 
     protected:
-      // Hybrid Setup
+      // Loads the other base methods and properties of the HybridObject like `toString` and `name`
       void loadHybridMethods() override;
-
-    protected:
-      // Tag for logging
-      static constexpr auto TAG = "Sodium";
 };
 
 ```
 
-Il file `Sodium.cpp` contiene l'implementazione dei metodi della classe `Sodium`.
+`Sodium.cpp` contains the implementation of our `Sodium` Hybrid Object.
 
 ```cpp
 #include "Sodium.hpp"
-#include "sodium.h" // <- Libreria di libsodium
+#include "sodium.h" // <- libsodium libraries
 
-Sodium::Sodium(): HybridObject(Sodium::TAG) { // <- Costruttore
-  // Inizializza la libreria di libsodium
+Sodium::Sodium(): HybridObject() {
+  // Initialize libsodium
   sodium_init();
 }
 
 void Sodium::loadHybridMethods() {
     // load base methods/properties
     HybridObject::loadHybridMethods();
-    // load custom methods/properties
+    // load custom methods/properties defined by ourselves
     registerHybrids(this, [](Prototype& prototype) {
-      prototype.registerHybridMethod("getRandomValues", &Sodium::getRandomValues); // <- Registra il metodo getRandomValues per essere chiamato dal modulo JavaScript
+      // This method will be callable from JavaScript
+      prototype.registerHybridMethod("getRandomValues", &Sodium::getRandomValues);
     });
   }
 
 void Sodium::getRandomValues(const std::shared_ptr<ArrayBuffer>& buffer) {
-  // Otteniamo la lista di bytes dall'ArrayBuffer
+  // Obtain a byteArray from the ArrayBuffer object
   uint8_t* data = buffer.get()->data();
-  // Otteniamo la lunghezza dell'ArrayBuffer
+  // Get the bytelength of the ArrayBuffer
   size_t arraySize = buffer->size();
-  // Generiamo numeri casuali sicuri e li inseriamo nell'ArrayBuffer
+  // Fill the byteArray with random values
   randombytes_buf(data, arraySize);
 }
 
 ```
+The core of the native module is now written. The only remaining thing is to tell to XCode and AndroidStudio how to compile the cpp files together with the libsodium library and the rest of the target app. These are scaffolding files that once written don't need to be modified again.
 
-Il core della libreria è stato scritto, ora va aggiunta alla configurazione della nostra libreria il modo con cui vengono compilati di file di cpp insieme alla libreria di libsodium e al resto dell'app.
-Una volta che questi file sono impostati non c'è più bisogno di toccarli.
+### iOS side settings
 
-### Implementazione lato iOS
-
-Ci sono due file importanti per l'implementazione del modulo nativo lato iOS:
+The important files are:
 - `RNSodium.podspec`
 - `Sodium.mm`
 
-Il file `RNSodium.podspec` è il file di configurazione del modulo per CocoaPods, in questo caso abbiamo aggiunto la dipendenza per la libreria di libsodium e abbiamo definito il codice sorgente del modulo.
+`RNSodium.podspec` è il file di configurazione del modulo per CocoaPods, in questo caso abbiamo aggiunto la dipendenza per la libreria di libsodium e abbiamo definito il codice sorgente del modulo.
+
+`RNSodium.podspec` is the configuration file for CocoaPods, in this case we added the dependency for the libsodium library and we defined the source code of the module.
 
 ```ruby
   # RNSodium.podspec
@@ -175,17 +169,17 @@ Il file `RNSodium.podspec` è il file di configurazione del modulo per CocoaPods
 Pod::Spec.new do |s|
   # ...
 
-  s.source_files = "ios/**/*.{h,m,mm}", "cpp/**/*.{hpp,cpp,c,h}" # <- Codice sorgente del modulo che va compilato
+  s.source_files = "ios/**/*.{h,m,mm}", "cpp/**/*.{hpp,cpp,c,h}" # our Native module source code
 
-  s.vendored_framework = "Clibsodium.xcframework" # <- Libreria di libsodium compilata per vari target iOS
+  s.vendored_framework = "Clibsodium.xcframework" # <- libsodium precompiled for every Apple arch
 
-  s.dependency "NitroModules" # <- Dipendenza per il framework di NitroModules
+  s.dependency "NitroModules" # <- Dependency of NitroModules framework
 
-  install_modules_dependencies(s) # <- Funzione che installa le dipendenze del modulo definita da NitroModules
+  install_modules_dependencies(s) # <- Install NitroModules dependencies
 end
 
 ```
-Ora passiamo al file `Sodium.mm` che è il file che contiene una funzione che viene chiamata in automatico dal framework di NitroModules per registrare il modulo nativo.
+`Sodium.mm` is the file that contains a function that is called automatically by the NitroModules framework to register the native module and make it accessible on the react native side.
 
 ```objc
 
@@ -208,14 +202,15 @@ Ora passiamo al file `Sodium.mm` che è il file che contiene una funzione che vi
 
 ```
 
-### Implementazione lato Android
+### Android side settings
 - `CMakelists.txt`
 - `SodiumPackage.java`
 - `cpp-adapter.cpp`
 
-Il codice di java chiama il codice nativo scritto in C++ tramite la libreria JNI.
+Java calls the C++ code through JNI (Java Native Interface), so we need to write a C++ adapter that will be called by Java to register the native module.
 
-Il file CmakeLists contiene le configurazioni per la compilazione del modulo nativo lato Android. Ed è l'equivalente del file `RNSodium.podspec` per iOS.
+
+`CMakeLists` contains the configurations for the compilation of the native module on the Android side. And it is the equivalent of the `RNSodium.podspec` file for iOS.
 
 ```cmake
 
@@ -234,7 +229,7 @@ add_library(
   ../cpp/Sodium.cpp
 )
 
-# Aggiungiamo nelle include directories il path dei precompilati di libsodium della target arch di Android
+# Add into the include directories the path to the libsodium headers
 include_directories(
   ../cpp
   "${CMAKE_SOURCE_DIR}/../libsodium-android/${CMAKE_ANDROID_ARCH_ABI}/include"
@@ -261,10 +256,10 @@ set_target_properties(
 
 # Link all libraries together
 target_link_libraries(
-  ${PACKAGE_NAME} # <- Nome del modulo nativo
+  ${PACKAGE_NAME} # <- Our Native Module
   ${LOG_LIB}           
   android
-  sodiumcpp # <- Linkiamo la libreria di libsodium
+  sodiumcpp # <- Link libsodium
   fbjni::fbjni
   ReactAndroid::jsi
   ReactAndroid::turbomodulejsijni
@@ -277,12 +272,15 @@ target_link_libraries(
   ReactAndroid::react_render_componentregistry
   ReactAndroid::rrc_view
   ReactAndroid::folly_runtime
-  react-native-nitro-modules::NitroModules # <- Linkiamo il framework di NitroModules
+  react-native-nitro-modules::NitroModules # <- Link NitroModules Framework
   )
 
 ```
 
 Il file `cpp-adapter.cpp` contiene la funzione che viene chiamata in automatico dal framework di NitroModules per registrare il modulo nativo, è l'equivalente del file `Sodium.mm` per iOS.
+
+`cpp-adpater.cpp` contains the function that is called automatically by the NitroModules framework to register the native module and make it accessible on the react native side. It's the equivalent of the `Sodium.mm` file for iOS.
+
 ```cpp
 #include <jni.h>
 
@@ -300,7 +298,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
 }
 ```
 
-E infine il file `SodiumPackage.java` che contiene la classe che esporta il modulo nativo per essere utilizzato in JavaScript.
+`SodiumPackage.java` contains the class that will be called by React Native to register the native module.
 
 ```java
 package com.sodium;
@@ -323,7 +321,7 @@ public class SodiumPackage extends TurboReactPackage {
   static {
     try {
       Log.i(TAG, "Loading C++ library...");
-      System.loadLibrary("RNSodium"); // <- Carica la libreria nativa creata usando CMake
+      System.loadLibrary("RNSodium"); // <- Load the C++ built with CMakeLists
       Log.i(TAG, "Successfully loaded C++ library!");
     } catch (Throwable e) {
       Log.e(TAG, "Failed to load C++ library! Is it properly installed and linked?", e);
