@@ -347,3 +347,6 @@ https://mrousavy.github.io/nitro/docs/what-is-nitro
 https://github.com/jedisct1/libsodium
 
 https://www.npmjs.com/package/create-react-native-library
+
+<img src="./assets/repoQR.png" />
+<img src="./assets/issueQR.png" />
